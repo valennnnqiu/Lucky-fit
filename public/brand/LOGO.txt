@@ -1,0 +1,17 @@
+Brand logo (header + footer)
+============================
+
+1. Save your image in THIS folder (public/brand/) as:
+
+   logo.png
+
+   You can use PNG, WebP, or SVG. If you use another filename or format,
+   set in .env.local:
+
+   NEXT_PUBLIC_BRAND_LOGO_SRC=/brand/your-file.webp
+
+2. Recommended: square artwork, at least about 120×120 px (displays at 36px
+   in the header and 56px in the footer).
+
+3. After replacing the file, hard-refresh the browser if you still see the
+   old image (browser cache).

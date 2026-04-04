@@ -1,0 +1,8 @@
+PNG thumbnails: exactly the 48 ids in `src/lib/garment-catalog.ts` → `GARMENT_IMAGE_IDS`.
+
+File path: `/result/garment-slots/<slug>.png` where slug = id in lowercase with spaces → hyphens
+(e.g. `shirt buttondown` → `shirt-buttondown.png`). Helper: `garmentIdToImageBasename()`.
+
+The outfit engine only recommends items from that list. If a PNG is missing, the slot is hidden (no placeholder).
+
+Removed from the old 51-item set (no assets): bodysuit, skirt long, slippers.

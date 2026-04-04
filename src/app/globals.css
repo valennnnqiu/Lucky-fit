@@ -1,0 +1,113 @@
+@import url("https://fonts.googleapis.com/css2?family=GFS+Didot&display=swap");
+@import "tailwindcss";
+
+:root {
+  /* Figma playground (iPhone frame) */
+  --background: #f3f5f6;
+  --foreground: #50504d;
+  /* Pairs with .font-hero-hand-accent; used for focus rings & selected controls */
+  --accent-rose: #c49a9e;
+  /* Home page 1 “phone” art + form column — must match PAGE_COLUMN_PX in page-layout.ts */
+  --home-design-px: 393px;
+  /* Result page: weather + Stay informed cards may use up to +30% width vs phone column */
+  --result-column-px: calc(var(--home-design-px) * 1.3);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  background-color: var(--background);
+}
+
+body {
+  min-height: 100dvh;
+  background-color: var(--background);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* UI controls: Geist sans (Next font variable from layout), not display/hand fonts */
+.font-geist {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Readable text on illustrated home form; WebKit autofill overrides yellow/white fill */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea {
+  color: var(--foreground);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--foreground) 42%, transparent);
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  box-shadow: 0 0 0 1000px #faf9f8 inset;
+  transition: background-color 9999s ease-out;
+}
+
+/* Hero title: GFS Didot (Google Fonts) */
+.font-gfs-didot {
+  font-family: "GFS Didot", ui-serif, Georgia, "Times New Roman", serif;
+}
+
+/* Hero accent words: Gloria Hallelujah (next/font in layout) */
+.font-hero-hand-accent {
+  font-family: var(--font-gloria-hallelujah), cursive;
+  color: rgba(209, 168, 169, 1);
+}
+
+/* Result / Figma ticket UI */
+.font-handjet {
+  font-family: var(--font-handjet), "Handjet", sans-serif;
+  font-optical-sizing: auto;
+}
+
+/* Result mood line: Caveat (next/font in layout) */
+.font-give-glory {
+  font-family: var(--font-caveat), cursive;
+}
+
+/**
+ * Page 1 (home): 393px column. Page 2 (result): same idea but column = 393×1.3 for top glass cards.
+ * Below each column’s design width, the block scales down with viewport; header/footer stay full width.
+ */
+.phone-canvas-stage {
+  width: 100%;
+  max-width: 100dvw;
+  overflow-x: clip;
+  display: flex;
+  justify-content: center;
+}
+
+.phone-canvas-scale {
+  width: var(--home-design-px);
+  flex-shrink: 0;
+  transform-origin: top center;
+  transform: scale(min(1, calc(100vw / var(--home-design-px))));
+}
+
+/** Result page only: +30% max width vs `--home-design-px` for weather + Stay informed rows. */
+.phone-canvas-scale--result {
+  width: var(--result-column-px);
+  transform: scale(min(1, calc(100vw / var(--result-column-px))));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

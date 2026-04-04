@@ -1,0 +1,402 @@
+"use client";
+
+import Link from "next/link";
+import { toPng } from "html-to-image";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { BrandLogoMark } from "@/components/brand-logo";
+import { WeatherIcon } from "@/components/weather-icon";
+import { getLuckyColorsFromBirthday } from "@/lib/lucky-color";
+import { occasionsMoodLabel } from "@/lib/occasion-labels";
+import { interpolate, strings } from "@/lib/strings";
+import {
+  SHARE_CARD_OUTFIT_ROWS_MIN_HEIGHT_PX,
+  TICKET_CARD_DISPLAY_PX,
+  TICKET_OVERLAY_INNER_PX,
+} from "@/lib/page-layout";
+import { garmentIdToImageBasename, hasGarmentImage } from "@/lib/garment-catalog";
+import { getOccasions, getOutfit, getProfile, getWeather } from "@/lib/storage";
+import type { Occasion, OutfitRecommendation, UserProfile, WeatherSnapshot } from "@/lib/types";
+
+/**
+ * Machine frame art in `public/result/ticket-machine.png`.
+ * Bump `TICKET_MACHINE_CACHE_KEY` after replacing the file to avoid browser / dev cache showing the old PNG.
+ * Keep `TICKET_MACHINE_INTRINSIC` in sync with the PNG pixel size so the card height matches the art (no extra red band).
+ * While the PNG loads successfully the frame stays `bg-transparent` so we don’t paint an extra solid behind transparent pixels.
+ */
+const TICKET_MACHINE_SRC = "/result/ticket-machine.png";
+const TICKET_MACHINE_CACHE_KEY = "2";
+const TICKET_MACHINE_INTRINSIC = { w: 1476, h: 2924 } as const;
+
+/** Garment thumbs in `public/result/garment-slots/` — see `NAMING.txt` there. */
+const GARMENT_SLOT_BASE = "/result/garment-slots";
+
+/** Weather / stay-informed cards: solid white on #f3f5f6; width matches `#share-card` ticket art (`TICKET_CARD_DISPLAY_PX`). */
+const resultGlassSection =
+  "rounded-xl border border-[rgba(209,209,209,1)] bg-white px-4 py-3 shadow-[0_4px_24px_-8px_rgba(80,80,77,0.1)]";
+
+const resultGlassSectionWidth = {
+  width: TICKET_CARD_DISPLAY_PX,
+  minWidth: TICKET_CARD_DISPLAY_PX,
+} as const;
+
+function display(value: string | undefined): string {
+  if (!value) return "—";
+  return value.replace("-", " ");
+}
+
+/** Local calendar date when the page is viewed (YYYY.MM.DD). */
+function formatTodayDot(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}.${m}.${day}`;
+}
+
+function capWords(s: string): string {
+  if (!s) return "";
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Weather-generated garment copy: hyphen → space, then title-case each word (per piece). */
+function titleGarmentPiece(raw: string | undefined): string {
+  const d = display(raw);
+  if (d === "—") return d;
+  return capWords(d);
+}
+
+/** Same as `titleGarmentPiece` for a value that may list several pieces separated by · */
+function titleGarmentPhrase(raw: string): string {
+  const parts = raw.split(/\s*·\s*/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) return "—";
+  return parts.map((p) => capWords(display(p))).join(" · ");
+}
+
+function topGarmentIds(o: OutfitRecommendation): string[] {
+  const onePiece = o.onePiece === true;
+  const ids: string[] = [o.topLayers.base];
+  if (!onePiece && o.topLayers.mid) ids.push(o.topLayers.mid);
+  if (o.topLayers.outer) ids.push(o.topLayers.outer);
+  return ids.filter(hasGarmentImage).slice(0, 4);
+}
+
+function bottomGarmentIds(o: OutfitRecommendation): string[] {
+  if (o.onePiece === true) return [];
+  const parts = o.bottom.split(/\s*·\s*/).map((s) => s.trim()).filter(Boolean);
+  return parts.filter(hasGarmentImage).slice(0, 4);
+}
+
+function shoeGarmentIds(o: OutfitRecommendation): string[] {
+  const parts = o.shoes.split(/\s*·\s*/).map((s) => s.trim()).filter(Boolean);
+  const raw = (parts.length > 0 ? parts : [o.shoes.trim() || "sneakers"]).slice(0, 4);
+  return raw.filter(hasGarmentImage);
+}
+
+export default function ResultPage() {
+  const t = strings.result;
+  const footer = strings.footer;
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
+  const [outfit, setOutfit] = useState<OutfitRecommendation | null>(null);
+  const [occasions, setOccasions] = useState<Occasion[]>(["office"]);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [ticketMachineOk, setTicketMachineOk] = useState(true);
+
+  useEffect(() => {
+    setProfile(getProfile());
+    setWeather(getWeather());
+    setOutfit(getOutfit());
+    const o = getOccasions();
+    setOccasions(o.length > 0 ? o : ["office"]);
+  }, []);
+
+  const mood = useMemo(() => occasionsMoodLabel(occasions), [occasions]);
+
+  async function handleDownload() {
+    const node = document.getElementById("share-card");
+    if (!node) return;
+    setIsDownloading(true);
+    try {
+      const dataUrl = await toPng(node, { pixelRatio: 2, cacheBust: true });
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = "ootd-oracle.png";
+      a.click();
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  const shell = "min-h-0 w-full bg-transparent pb-10 pt-4 text-[#50504d] lg:pb-12";
+
+  if (!profile || !weather || !outfit) {
+    return (
+      <div className="phone-canvas-stage">
+        <div className="phone-canvas-scale phone-canvas-scale--result">
+          <div className={shell}>
+            <div className="py-12 text-center">
+              <p className="text-sm text-[#50504d]/70">{t.missing}</p>
+              <Link
+                href="/"
+                className="mt-4 inline-flex h-9 items-center justify-center rounded-full border border-[#40403d]/22 bg-[#4a4846] px-6 text-sm font-semibold leading-none text-[#f7f6f5] shadow-sm hover:bg-[#3f3d3b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c49a9e]"
+              >
+                {t.backHome}
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const hiLo =
+    weather.tempMin !== undefined && weather.tempMax !== undefined
+      ? interpolate(t.hiLo, { high: weather.tempMax, low: weather.tempMin })
+      : t.hiLoUnknown;
+
+  const topLine = [
+    titleGarmentPiece(outfit.topLayers.base),
+    outfit.topLayers.mid ? titleGarmentPiece(outfit.topLayers.mid) : null,
+    outfit.topLayers.outer ? titleGarmentPiece(outfit.topLayers.outer) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const desc = capWords(weather.description);
+
+  const luckyColorsToday = getLuckyColorsFromBirthday(profile.birthday);
+
+  return (
+    <div className="phone-canvas-stage">
+      <div className="phone-canvas-scale phone-canvas-scale--result">
+        <div className={shell}>
+          <div className="flex w-full flex-col gap-3">
+        {/* Weather card */}
+        <section
+          className={`${resultGlassSection} mx-auto flex shrink-0 items-start justify-between gap-3`}
+          style={resultGlassSectionWidth}
+          aria-label={weather.city}
+        >
+          <div className="flex min-w-0 flex-col gap-2 text-[#50504d]">
+            <div className="flex flex-col gap-0.5">
+              <p className="text-xs font-normal leading-normal text-[#50504d]/90">{weather.city}</p>
+              <p className="text-2xl font-semibold tabular-nums leading-normal text-[#50504d]">
+                {weather.temp}°
+              </p>
+              <p className="text-xs font-normal leading-normal text-[#50504d]/90">
+                {t.weatherFeels}: {weather.feelsLike}°
+              </p>
+            </div>
+            <p className="text-xs font-normal leading-normal whitespace-pre-wrap text-[#50504d]/90">{hiLo}</p>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-3">
+            <p className="font-geist text-right text-[20px] leading-normal whitespace-nowrap text-[#50504d]">
+              {desc}
+            </p>
+            <WeatherIcon weather={weather} className="size-[50px] object-contain" />
+          </div>
+        </section>
+
+        {/* Stay informed — only when weather/travel reminders exist */}
+        {outfit.reminder.length > 0 ? (
+          <section
+            className={`${resultGlassSection} mx-auto flex shrink-0 items-start gap-3`}
+            style={resultGlassSectionWidth}
+            aria-labelledby="result-stay-heading"
+          >
+            <img
+              src="/result/stay-informed/icon.png"
+              alt=""
+              width={48}
+              height={48}
+              className="size-12 shrink-0 rounded-[30px] object-contain"
+              loading="lazy"
+              decoding="async"
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1">
+              <p
+                id="result-stay-heading"
+                className="font-sans text-sm leading-normal text-[#50504d]"
+              >
+                {t.stayInformed}
+              </p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-[18px] text-xs font-normal leading-normal text-[#50504d]/90">
+                {outfit.reminder.map((line) => (
+                  <li key={line}>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        ) : null}
+
+        {/* Ticket / dispenser — PNG keeps full height at display width (no object-cover crop). */}
+        <div className="flex w-full justify-center">
+          <div
+            id="share-card"
+            className="mt-1 flex shrink-0 flex-col items-center gap-3"
+            style={{ width: TICKET_CARD_DISPLAY_PX }}
+          >
+          <div
+            className={`relative shrink-0 overflow-hidden rounded-none ${
+              ticketMachineOk
+                ? "bg-transparent"
+                : "bg-gradient-to-b from-[#9c3b2e] via-[#8f362b] to-[#6d2a22]"
+            }`}
+            style={{
+              width: TICKET_CARD_DISPLAY_PX,
+              ...(!ticketMachineOk && {
+                aspectRatio: `${TICKET_MACHINE_INTRINSIC.w} / ${TICKET_MACHINE_INTRINSIC.h}`,
+              }),
+            }}
+          >
+            {ticketMachineOk ? (
+              <img
+                src={`${TICKET_MACHINE_SRC}?v=${TICKET_MACHINE_CACHE_KEY}`}
+                alt=""
+                width={TICKET_MACHINE_INTRINSIC.w}
+                height={TICKET_MACHINE_INTRINSIC.h}
+                className="pointer-events-none relative z-0 block h-auto w-full max-w-full select-none"
+                draggable={false}
+                onError={() => setTicketMachineOk(false)}
+              />
+            ) : null}
+            {ticketMachineOk ? (
+              <>
+            <div className="absolute inset-0 z-[2] flex min-h-0 flex-col rounded-none p-2">
+            <div
+              className="relative mx-auto mt-[24px] rounded-none bg-transparent px-2 pb-8 pt-3 shadow-inner"
+              style={{ width: TICKET_OVERLAY_INNER_PX, maxWidth: TICKET_OVERLAY_INNER_PX }}
+            >
+              <div className="-mt-[10px] box-content flex w-full items-center justify-between gap-4 py-2 px-0">
+                <div className="h-fit w-[200px] shrink-0 rounded-lg border border-solid border-[#d1d1d1] bg-[#bfafb4] py-1 pl-3.5 pr-5">
+                  <p className="font-handjet text-base leading-normal font-medium text-[#2e302d]">
+                    {formatTodayDot()}
+                  </p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <p className="font-handjet text-base leading-normal font-medium text-[#2e302d]">
+                      {t.luckyColor}:
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {luckyColorsToday.map((hex) => (
+                        <span
+                          key={hex}
+                          className="size-4 shrink-0 rounded-[10px] border border-[#2e302d]/25"
+                          style={{ backgroundColor: hex }}
+                          aria-hidden
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center justify-center">
+                  <BrandLogoMark variant="shareCard" alt={t.luckyFitBadge} />
+                </div>
+              </div>
+
+              <div className="mx-auto mt-[30px] flex w-full max-w-[270px] flex-col items-center gap-4 px-1 pt-2">
+                <p className="font-give-glory text-center text-2xl leading-normal text-[#d1a8a9]">
+                  {mood}
+                </p>
+
+                <div className="flex w-full flex-col items-center gap-3.5">
+                  <div
+                    className="flex w-full flex-col gap-3"
+                    style={{ minHeight: SHARE_CARD_OUTFIT_ROWS_MIN_HEIGHT_PX }}
+                  >
+                    <OutfitRow
+                      garmentIds={topGarmentIds(outfit)}
+                      label={
+                        <span className="font-handjet text-[15px] font-medium text-[#2e302d]">
+                          {outfit.onePiece === true ? t.slotOnePiece : t.slotTop}: {topLine}
+                        </span>
+                      }
+                    />
+                    {outfit.onePiece !== true ? (
+                      <OutfitRow
+                        garmentIds={bottomGarmentIds(outfit)}
+                        label={
+                          <span className="font-handjet text-[15px] font-medium text-[#2e302d]">
+                            {t.slotBottom}: {titleGarmentPhrase(outfit.bottom)}
+                          </span>
+                        }
+                      />
+                    ) : null}
+                    <OutfitRow
+                      garmentIds={shoeGarmentIds(outfit)}
+                      label={
+                        <span className="font-handjet text-[15px] font-medium text-[#2e302d]">
+                          {t.slotShoes}: {titleGarmentPhrase(outfit.shoes)}
+                        </span>
+                      }
+                    />
+                  </div>
+                  <p className="mt-[26px] font-handjet w-full text-center text-[14px] font-normal text-[#2e302d]/85">
+                    {interpolate(t.madeBy, { author: footer.authorName })}
+                  </p>
+                </div>
+              </div>
+            </div>
+            </div>
+              </>
+            ) : null}
+          </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={isDownloading}
+          aria-busy={isDownloading}
+          className="mx-auto flex h-12 w-full max-w-[324px] items-center justify-center rounded-[12px] border border-white/40 bg-[#bfafb4] px-4 text-center shadow-sm transition hover:border-[#9d7278]/55 hover:bg-[#c49a9e] disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c49a9e]"
+        >
+          <span className="font-handjet text-2xl font-medium leading-none text-[#1f1e1d]">
+            {isDownloading ? t.downloadBusy : t.downloadCta}
+          </span>
+        </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GarmentSlotThumb({ garmentId }: { garmentId: string }) {
+  const src = `${GARMENT_SLOT_BASE}/${garmentIdToImageBasename(garmentId)}.png`;
+  const [broken, setBroken] = useState(false);
+
+  if (broken) return null;
+
+  return (
+    <img
+      src={src}
+      alt=""
+      width={60}
+      height={60}
+      className="size-[60px] shrink-0 rounded-none object-cover"
+      draggable={false}
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
+function OutfitRow({
+  garmentIds,
+  label,
+}: {
+  garmentIds: string[];
+  label: ReactNode;
+}) {
+  return (
+    <div className="flex w-full min-w-0 flex-col items-center gap-2.5 overflow-hidden rounded-[16px] border border-dashed border-[#d1a8a9] px-1.5 py-2.5">
+      <div className="flex w-full min-w-0 flex-wrap justify-center gap-[6px]">
+        {garmentIds.map((id, i) => (
+          <GarmentSlotThumb key={`${i}-${garmentIdToImageBasename(id)}`} garmentId={id} />
+        ))}
+      </div>
+      <div className="w-full min-w-0 text-center">{label}</div>
+    </div>
+  );
+}
