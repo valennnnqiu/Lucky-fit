@@ -20,35 +20,35 @@ export function AppFooter() {
   return (
     <footer className="mt-auto w-full border-t border-[#50504d]/10 bg-[#f3f5f6] text-[#50504d]">
       <div className="mx-auto w-full max-w-none bg-[#f3f5f6] px-4 py-8 text-[rgba(80,80,77,1)] md:px-8 lg:px-12 lg:py-10">
-        <div className="flex w-full flex-col gap-3">
-          <div className="flex w-full flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="flex w-full flex-col items-center gap-4 text-center md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-x-4 md:gap-y-3 md:text-left">
+          <div className="flex min-w-0 flex-row flex-wrap items-center justify-center gap-x-4 gap-y-2 md:flex-1 md:justify-start">
             <BrandLogoMark variant="footer" alt={t.logoAlt} />
-            <nav
-              className="flex shrink-0 flex-wrap items-center gap-3"
-              aria-label="Social"
+            <div className="min-w-0 space-y-1 text-sm text-[#50504d]">
+              <p className="text-[#50504d]">{t.tagline}</p>
+              <p className="text-xs text-[#50504d]">{t.copyright}</p>
+            </div>
+          </div>
+          <nav
+            className="flex shrink-0 flex-wrap items-center justify-center gap-3 md:justify-end"
+            aria-label="Social"
+          >
+            <a
+              href={instagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={iconCircleBtnClass}
+              aria-label={t.instagram}
             >
-              <a
-                href={instagramUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={iconCircleBtnClass}
-                aria-label={t.instagram}
-              >
-                <img
-                  src={FOOTER_ICON_INSTAGRAM}
-                  alt=""
-                  width={24}
-                  height={24}
-                  className="pointer-events-none size-6 object-contain"
-                  decoding="async"
-                />
-              </a>
-            </nav>
-          </div>
-          <div className="min-w-0 space-y-1 text-sm text-[#50504d]">
-            <p className="text-[#50504d]">{t.tagline}</p>
-            <p className="text-xs text-[#50504d]">{t.copyright}</p>
-          </div>
+              <img
+                src={FOOTER_ICON_INSTAGRAM}
+                alt=""
+                width={24}
+                height={24}
+                className="pointer-events-none size-6 object-contain"
+                decoding="async"
+              />
+            </a>
+          </nav>
         </div>
       </div>
     </footer>

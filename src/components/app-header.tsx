@@ -15,8 +15,8 @@ export function AppHeader() {
       >
         {t.skipToMain}
       </a>
-      <div className="mx-auto flex min-h-[60px] w-full max-w-none items-center justify-between gap-3 bg-[#f3f5f6] px-4 sm:min-h-16 md:px-8 lg:px-12">
-        <div className="flex min-w-0 flex-1 items-center gap-2 text-[#50504D] sm:gap-3">
+      <div className="mx-auto flex min-h-[60px] w-full max-w-none items-center justify-center gap-3 bg-[#f3f5f6] px-4 sm:min-h-16 md:justify-start md:px-8 lg:px-12">
+        <div className="flex min-w-0 items-center justify-center gap-2 text-[#50504D] sm:gap-3 md:flex-1 md:justify-start">
           <Link
             href="/"
             className="flex min-w-0 items-center rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c49a9e]"

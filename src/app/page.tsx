@@ -274,7 +274,7 @@ export default function Home() {
             width={HOME_HERO_TITLE_WIDTH}
             height={HOME_HERO_TITLE_HEIGHT}
             decoding="async"
-            className="mx-auto block h-fit w-[400px] object-contain object-center"
+            className="mx-auto block h-fit w-[400px] object-contain object-center py-[80px]"
           />
         </h1>
         {t.home.heroSubtitle.trim() ? (
