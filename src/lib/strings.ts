@@ -38,13 +38,12 @@ export const strings = {
     submitBusy: "Loading…",
     activities: {
       office: "Office",
-      coffee: "Coffee",
+      coffee: "Date",
       gym: "Gym",
       party: "Party",
       brunch: "Brunch",
       meeting: "Meeting",
       school: "School",
-      casual: "Casual",
     },
     gender: {
       female: "Female",

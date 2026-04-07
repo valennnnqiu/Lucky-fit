@@ -3,7 +3,7 @@ import type { Occasion } from "./types";
 const moodEn: Record<Occasion, string> = {
   meeting: "meeting day",
   office: "office day",
-  coffee: "coffee run",
+  coffee: "date",
   networking: "networking",
   party: "party night",
   gym: "gym day",

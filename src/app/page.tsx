@@ -62,8 +62,7 @@ type ActivityLabelKey =
   | "party"
   | "brunch"
   | "meeting"
-  | "school"
-  | "casual";
+  | "school";
 
 const activityGrid: { value: Occasion; labelKey: ActivityLabelKey }[] = [
   { value: "school", labelKey: "school" },
@@ -73,7 +72,6 @@ const activityGrid: { value: Occasion; labelKey: ActivityLabelKey }[] = [
   { value: "brunch", labelKey: "brunch" },
   { value: "coffee", labelKey: "coffee" },
   { value: "gym", labelKey: "gym" },
-  { value: "casual-day", labelKey: "casual" },
 ];
 
 /**
@@ -158,7 +156,9 @@ export default function Home() {
 
   useEffect(() => {
     const saved = getOccasions();
-    if (saved.length > 0) setOccasions(saved);
+    if (saved.length === 0) return;
+    const filtered = saved.filter((o) => o !== "casual-day");
+    setOccasions(filtered.length > 0 ? filtered : ["office"]);
   }, []);
 
   function labelForActivity(labelKey: ActivityLabelKey): string {
