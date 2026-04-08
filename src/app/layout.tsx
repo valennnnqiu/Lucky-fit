@@ -7,6 +7,7 @@ import {
   Handjet,
 } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Providers } from "@/components/providers";
 import { SiteShell } from "@/components/site-shell";
 import "./globals.css";
@@ -57,6 +58,7 @@ export default function RootLayout({
           <SiteShell>{children}</SiteShell>
         </Providers>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
