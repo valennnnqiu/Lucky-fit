@@ -6,6 +6,7 @@ import {
   Gloria_Hallelujah,
   Handjet,
 } from "next/font/google";
+import { Analytics } from "@vercel/analytics/react";
 import { Providers } from "@/components/providers";
 import { SiteShell } from "@/components/site-shell";
 import "./globals.css";
@@ -55,6 +56,7 @@ export default function RootLayout({
         <Providers>
           <SiteShell>{children}</SiteShell>
         </Providers>
+        <Analytics />
       </body>
     </html>
   );
