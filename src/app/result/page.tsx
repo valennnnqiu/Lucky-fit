@@ -122,6 +122,34 @@ function waitForShareCardImages(root: HTMLElement): Promise<void> {
   ).then(() => {});
 }
 
+/**
+ * `.phone-canvas-scale` uses CSS transform: scale(&lt;1) so the card looks smaller than
+ * layout size; html2canvas follows the *drawn* size unless we bump `scale` by this factor.
+ */
+function layoutScaleCompensation(el: HTMLElement): number {
+  const rect = el.getBoundingClientRect();
+  const ow = el.offsetWidth;
+  const oh = Math.max(el.scrollHeight, el.offsetHeight);
+  const cx = rect.width > 1 ? ow / rect.width : 1;
+  const cy = rect.height > 1 ? oh / rect.height : 1;
+  const c = Math.max(cx, cy);
+  if (!Number.isFinite(c) || c < 1 || c > 6) return 1;
+  return c;
+}
+
+function blobFromCanvas(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => {
+        if (b && b.size > 0) resolve(b);
+        else reject(new Error("empty canvas blob"));
+      },
+      "image/png",
+      1,
+    );
+  });
+}
+
 export default function ResultPage() {
   const t = strings.result;
   const footer = strings.footer;
@@ -159,39 +187,57 @@ export default function ResultPage() {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
 
-      let dataUrl: string;
+      let png: Blob;
       try {
-        const canvas = await html2canvas(node as HTMLElement, {
-          scale: pixelRatio,
+        const el = node as HTMLElement;
+        const compensation = layoutScaleCompensation(el);
+        const canvas = await html2canvas(el, {
+          scale: pixelRatio * compensation,
           useCORS: true,
           allowTaint: false,
           foreignObjectRendering: false,
           backgroundColor: null,
           logging: false,
         });
-        dataUrl = canvas.toDataURL("image/png");
+        png = await blobFromCanvas(canvas);
       } catch {
         restoreImages = await prepareImagesForHtmlToImageCapture(node, pixelRatio);
         await new Promise<void>((resolve) =>
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         );
-        dataUrl = await toPng(node, { pixelRatio, cacheBust: true });
+        const dataUrl = await toPng(node, { pixelRatio, cacheBust: true });
+        const blob = await (await fetch(dataUrl)).blob();
+        png = blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
       }
-      const blob = await (await fetch(dataUrl)).blob();
-      const png =
-        blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
+
       const file = new File([png], filename, { type: "image/png" });
-
       const nav = typeof navigator !== "undefined" ? navigator : undefined;
+      const coarsePointer =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(pointer: coarse)").matches;
 
-      // 1) Native share sheet with image (mobile + some desktop).
-      if (nav?.canShare?.({ files: [file] })) {
+      // 1) Web Share with file — iOS often reports canShare false even when share(files) works.
+      const sharePayload = {
+        files: [file],
+        title: t.sharePicTitle,
+        text: t.sharePicText,
+      };
+      let tryFileShare = false;
+      if (file.size > 0 && nav?.share) {
+        if (typeof nav.canShare === "function") {
+          try {
+            tryFileShare = nav.canShare(sharePayload);
+          } catch {
+            tryFileShare = coarsePointer;
+          }
+        } else {
+          tryFileShare = coarsePointer;
+        }
+        if (!tryFileShare && coarsePointer) tryFileShare = true;
+      }
+      if (tryFileShare && nav?.share) {
         try {
-          await nav.share({
-            files: [file],
-            title: t.sharePicTitle,
-            text: t.sharePicText,
-          });
+          await nav.share(sharePayload);
           return;
         } catch (e) {
           const name = e instanceof Error ? e.name : "";
