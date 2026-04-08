@@ -5,6 +5,8 @@ const PROFILE_KEY = "ootd-oracle-profile";
 const WEATHER_KEY = "ootd-oracle-weather";
 const OCCASION_KEY = "ootd-oracle-occasion";
 const OUTFIT_KEY = "ootd-oracle-outfit";
+/** Last `roll` passed to `generateOutfit` for the saved outfit (0 = first run from home). */
+const OUTFIT_ROLL_KEY = "ootd-oracle-outfit-roll";
 
 const VALID_OCCASION = new Set<string>([
   "meeting",
@@ -83,4 +85,19 @@ export function saveOutfit(outfit: OutfitRecommendation): void {
 export function getOutfit(): OutfitRecommendation | null {
   const raw = localStorage.getItem(OUTFIT_KEY);
   return raw ? (JSON.parse(raw) as OutfitRecommendation) : null;
+}
+
+export function saveOutfitRoll(roll: number): void {
+  if (!Number.isFinite(roll) || roll < 0) {
+    localStorage.removeItem(OUTFIT_ROLL_KEY);
+    return;
+  }
+  localStorage.setItem(OUTFIT_ROLL_KEY, String(Math.floor(roll)));
+}
+
+export function getOutfitRoll(): number {
+  const raw = localStorage.getItem(OUTFIT_ROLL_KEY);
+  if (!raw) return 0;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 }

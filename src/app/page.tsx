@@ -17,6 +17,7 @@ import {
   getProfile,
   saveOccasions,
   saveOutfit,
+  saveOutfitRoll,
   saveProfile,
   saveWeather,
 } from "@/lib/storage";
@@ -247,6 +248,7 @@ export default function Home() {
       saveWeather(weather);
       const outfit = generateOutfit(weather, occasions, luckyColor, gender);
       saveOutfit(outfit);
+      saveOutfitRoll(0);
       router.push("/result");
     } catch (err: unknown) {
       if (err instanceof WeatherFetchError) {

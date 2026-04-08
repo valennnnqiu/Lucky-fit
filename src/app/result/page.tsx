@@ -14,8 +14,19 @@ import {
   TICKET_OVERLAY_INNER_PX,
 } from "@/lib/page-layout";
 import { garmentIdToImageBasename, hasGarmentImage } from "@/lib/garment-catalog";
-import { getOccasions, getOutfit, getProfile, getWeather } from "@/lib/storage";
+import { generateOutfit } from "@/lib/outfit-engine";
+import {
+  getOccasions,
+  getOutfit,
+  getOutfitRoll,
+  getProfile,
+  getWeather,
+  saveOutfit,
+  saveOutfitRoll,
+  saveWeather,
+} from "@/lib/storage";
 import type { Occasion, OutfitRecommendation, UserProfile, WeatherSnapshot } from "@/lib/types";
+import { fetchWeatherByCity } from "@/lib/weather";
 
 /**
  * Machine frame art in `public/result/ticket-machine.png`.
@@ -98,7 +109,9 @@ export default function ResultPage() {
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
   const [outfit, setOutfit] = useState<OutfitRecommendation | null>(null);
   const [occasions, setOccasions] = useState<Occasion[]>(["office"]);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [isTryAgain, setIsTryAgain] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [ticketMachineOk, setTicketMachineOk] = useState(true);
 
   useEffect(() => {
@@ -111,18 +124,90 @@ export default function ResultPage() {
 
   const mood = useMemo(() => occasionsMoodLabel(occasions), [occasions]);
 
-  async function handleDownload() {
+  async function handleShareImage() {
     const node = document.getElementById("share-card");
     if (!node) return;
-    setIsDownloading(true);
+    setShareFeedback(null);
+    setIsSharing(true);
+    const filename = "luckyfit.png";
     try {
       const dataUrl = await toPng(node, { pixelRatio: 2, cacheBust: true });
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = "ootd-oracle.png";
-      a.click();
+      const blob = await (await fetch(dataUrl)).blob();
+      const png =
+        blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
+      const file = new File([png], filename, { type: "image/png" });
+
+      const nav = typeof navigator !== "undefined" ? navigator : undefined;
+
+      // 1) Native share sheet with image (mobile + some desktop).
+      if (nav?.canShare?.({ files: [file] })) {
+        try {
+          await nav.share({
+            files: [file],
+            title: t.sharePicTitle,
+            text: t.sharePicText,
+          });
+          return;
+        } catch (e) {
+          const name = e instanceof Error ? e.name : "";
+          if (name === "AbortError") return;
+        }
+      }
+
+      // 2) Copy image so user can paste into Messages, Mail, etc. (common on desktop).
+      try {
+        if (nav?.clipboard?.write && typeof ClipboardItem !== "undefined") {
+          await nav.clipboard.write([
+            new ClipboardItem({
+              "image/png": png,
+            }),
+          ]);
+          setShareFeedback(t.sharePicCopiedHint);
+          window.setTimeout(() => setShareFeedback(null), 5000);
+          return;
+        }
+      } catch {
+        /* fall through to file download */
+      }
+
+      // 3) Save file — last resort when share + clipboard aren’t available.
+      const url = URL.createObjectURL(png);
+      try {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     } finally {
-      setIsDownloading(false);
+      setIsSharing(false);
+    }
+  }
+
+  async function handleTryAgain() {
+    if (!profile || !weather) return;
+    setIsTryAgain(true);
+    try {
+      const nextRoll = getOutfitRoll() + 1;
+      let w: WeatherSnapshot = weather;
+      try {
+        const fresh = await fetchWeatherByCity(profile.city.trim());
+        w = fresh;
+        saveWeather(fresh);
+        setWeather(fresh);
+      } catch {
+        /* keep cached snapshot; outfit still respects last known weather */
+      }
+      const next = generateOutfit(w, occasions, profile.luckyColor, profile.gender, nextRoll);
+      setOutfit(next);
+      saveOutfit(next);
+      saveOutfitRoll(nextRoll);
+    } finally {
+      setIsTryAgain(false);
     }
   }
 
@@ -345,17 +430,37 @@ export default function ResultPage() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleDownload}
-          disabled={isDownloading}
-          aria-busy={isDownloading}
-          className="mx-auto flex h-12 w-full max-w-[324px] items-center justify-center rounded-[12px] border border-white/40 bg-[#bfafb4] px-4 text-center shadow-sm transition hover:border-[#9d7278]/55 hover:bg-[#c49a9e] disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c49a9e]"
-        >
-          <span className="font-handjet text-2xl font-medium leading-none text-[#1f1e1d]">
-            {isDownloading ? t.downloadBusy : t.downloadCta}
-          </span>
-        </button>
+        <div className="mx-auto flex w-full max-w-[324px] flex-col gap-2">
+          <div className="flex flex-row gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={handleTryAgain}
+            disabled={isTryAgain || isSharing}
+            aria-busy={isTryAgain}
+            className="flex h-12 min-w-0 flex-1 items-center justify-center rounded-[12px] border border-[#50504d]/22 bg-white px-2 text-center shadow-sm transition hover:border-[#9d7278]/45 hover:bg-[#faf9f8] disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c49a9e] sm:px-3"
+          >
+            <span className="font-handjet text-lg font-medium leading-none text-[#1f1e1d] sm:text-2xl">
+              {isTryAgain ? t.tryAgainBusy : t.tryAgainCta}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={handleShareImage}
+            disabled={isSharing || isTryAgain}
+            aria-busy={isSharing}
+            className="flex h-12 min-w-0 flex-1 items-center justify-center rounded-[12px] border border-white/40 bg-[#bfafb4] px-2 text-center shadow-sm transition hover:border-[#9d7278]/55 hover:bg-[#c49a9e] disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c49a9e] sm:px-3"
+          >
+            <span className="font-handjet text-lg font-medium leading-none text-[#1f1e1d] sm:text-2xl">
+              {isSharing ? t.downloadBusy : t.downloadCta}
+            </span>
+          </button>
+          </div>
+          {shareFeedback ? (
+            <p className="text-center text-xs leading-snug text-[#50504d]/85" role="status">
+              {shareFeedback}
+            </p>
+          ) : null}
+        </div>
           </div>
         </div>
       </div>

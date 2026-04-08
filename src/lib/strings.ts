@@ -28,7 +28,7 @@ export const strings = {
     heroTitleLine2AccentColor: "color",
     heroTitleLine2Trail: "",
     heroSubtitle: "",
-    activityTitle: "What's your plan today?",
+    activityTitle: "what's your plan today?(select up to 3)",
     cityLabel: "Your city",
     cityPlaceholder: "Search city",
     birthdayLabel: "Your birthday (for your lucky color 🎨)",
@@ -79,8 +79,15 @@ export const strings = {
     slotOnePiece: "One Piece",
     slotBottom: "Bottom",
     slotShoes: "Shoes",
-    downloadCta: "Download",
-    downloadBusy: "Exporting…",
+    downloadCta: "Share",
+    downloadBusy: "Sharing…",
+    /** Passed to the system share sheet with the PNG (where supported). */
+    sharePicTitle: "Lucky Fit",
+    sharePicText: "My Lucky Fit outfit card 🎨",
+    /** After clipboard fallback when Web Share files isn’t available. */
+    sharePicCopiedHint: "Image copied — paste to share.",
+    tryAgainCta: "Try again",
+    tryAgainBusy: "New look…",
     madeBy: "Made by: {author}",
   },
   footer: {

@@ -1,6 +1,9 @@
 import { isGarmentAllowed } from "./garment-catalog";
 import type { Gender, Occasion, OutfitRecommendation, WeatherSnapshot } from "./types";
 
+/** Rounds `roll` + monotonic slot counter so Try again shifts picks without changing first-run (roll 0) output. */
+type PickCtx = { roll: number; slot: number };
+
 /** Pick one occasion to drive base / bottom / shoes when several are selected. */
 function pickPrimaryOccasion(occasions: Occasion[]): Occasion {
   const o = occasions.length > 0 ? occasions : (["office"] as Occasion[]);
@@ -22,9 +25,20 @@ function pickPrimaryOccasion(occasions: Occasion[]): Occasion {
   return o[0];
 }
 
-function pickGarment(pool: readonly string[], gender: Gender, fallback: string): string {
-  const hit = pool.find((id) => isGarmentAllowed(id, gender));
-  return hit ?? fallback;
+function pickGarment(
+  pool: readonly string[],
+  gender: Gender,
+  fallback: string,
+  ctx: PickCtx,
+): string {
+  const allowed = pool.filter((id) => isGarmentAllowed(id, gender));
+  if (allowed.length === 0) return fallback;
+  const s = ctx.slot++;
+  const idx =
+    ctx.roll === 0
+      ? 0
+      : (((ctx.roll * 7919 + s * 31) >>> 0) % allowed.length);
+  return allowed[idx];
 }
 
 /** Male never uses `femalePool`; non-binary uses `neutralPool` (no dresses/skirts/heels-only, etc.). */
@@ -34,10 +48,11 @@ function pickByGenderGroup(
   femalePool: readonly string[],
   neutralPool: readonly string[],
   fallback: string,
+  ctx: PickCtx,
 ): string {
-  if (gender === "male") return pickGarment(malePool, gender, fallback);
-  if (gender === "non-binary") return pickGarment(neutralPool, gender, fallback);
-  return pickGarment(femalePool, gender, fallback);
+  if (gender === "male") return pickGarment(malePool, gender, fallback, ctx);
+  if (gender === "non-binary") return pickGarment(neutralPool, gender, fallback, ctx);
+  return pickGarment(femalePool, gender, fallback, ctx);
 }
 
 function shouldUseOnePiece(occasion: Occasion, gender: Gender, feelsLike: number): boolean {
@@ -57,48 +72,58 @@ function shouldUseOnePiece(occasion: Occasion, gender: Gender, feelsLike: number
   return false;
 }
 
-function pickOnePieceGarment(occasion: Occasion, gender: Gender, feelsLike: number): string {
+function pickOnePieceGarment(
+  occasion: Occasion,
+  gender: Gender,
+  feelsLike: number,
+  ctx: PickCtx,
+): string {
   if (gender === "female") {
     if (occasion === "party" || occasion === "networking") {
       return pickGarment(
         ["mini dress", "bodycon", "slip dress", "romper", "dress"],
         gender,
         "mini dress",
+        ctx,
       );
     }
     if (occasion === "brunch") {
-      return pickGarment(["maxi dress", "mini dress", "romper"], gender, "maxi dress");
+      return pickGarment(["maxi dress", "mini dress", "romper"], gender, "maxi dress", ctx);
     }
   }
   if (gender === "male" && occasion === "rave") {
-    return pickGarment(["jumpsuit"], gender, "jumpsuit");
+    return pickGarment(["jumpsuit"], gender, "jumpsuit", ctx);
   }
   if (gender === "non-binary") {
-    return pickGarment(["jumpsuit"], gender, "jumpsuit");
+    return pickGarment(["jumpsuit"], gender, "jumpsuit", ctx);
   }
-  return pickGarment(["jumpsuit"], gender, "jumpsuit");
+  return pickGarment(["jumpsuit"], gender, "jumpsuit", ctx);
 }
 
-function midLayerByFeelsLike(feelsLike: number, gender: Gender): string | undefined {
+function midLayerByFeelsLike(feelsLike: number, gender: Gender, ctx: PickCtx): string | undefined {
   if (feelsLike <= 8) {
-    return pickGarment(["sweater", "knit"], gender, "sweater");
+    return pickGarment(["sweater", "knit"], gender, "sweater", ctx);
   }
   if (feelsLike <= 16) {
-    return pickGarment(["cardigan", "sweatshirt", "hoodie"], gender, "cardigan");
+    return pickGarment(["cardigan", "sweatshirt", "hoodie"], gender, "cardigan", ctx);
   }
   return undefined;
 }
 
-function outerLayerByWeather(weather: WeatherSnapshot, gender: Gender): string | undefined {
+function outerLayerByWeather(
+  weather: WeatherSnapshot,
+  gender: Gender,
+  ctx: PickCtx,
+): string | undefined {
   const rainy = weather.condition === "rain" || weather.precipitation >= 0.3;
   if (rainy) {
-    return pickGarment(["raincoat", "trench", "windbreaker", "jacket"], gender, "jacket");
+    return pickGarment(["raincoat", "trench", "windbreaker", "jacket"], gender, "jacket", ctx);
   }
   if (weather.feelsLike <= 8) {
-    return pickGarment(["coat", "puffer", "bomber"], gender, "coat");
+    return pickGarment(["coat", "puffer", "bomber"], gender, "coat", ctx);
   }
   if (weather.feelsLike <= 16) {
-    return pickGarment(["blazer", "denim jacket", "leather jacket", "jacket"], gender, "blazer");
+    return pickGarment(["blazer", "denim jacket", "leather jacket", "jacket"], gender, "blazer", ctx);
   }
   return undefined;
 }
@@ -106,6 +131,7 @@ function outerLayerByWeather(weather: WeatherSnapshot, gender: Gender): string |
 function baseBottomShoesForOccasion(
   occasion: Occasion,
   gender: Gender,
+  ctx: PickCtx,
 ): { base: string; bottom: string; shoes: string } {
   switch (occasion) {
     case "meeting":
@@ -117,6 +143,7 @@ function baseBottomShoesForOccasion(
           ["blouse", "shirt buttondown", "polo"],
           ["shirt buttondown", "polo", "tshirt"],
           "shirt buttondown",
+          ctx,
         ),
         bottom: pickByGenderGroup(
           gender,
@@ -124,6 +151,7 @@ function baseBottomShoesForOccasion(
           ["trousers", "pants", "skirt midi"],
           ["trousers", "pants", "jeans"],
           "trousers",
+          ctx,
         ),
         shoes: pickByGenderGroup(
           gender,
@@ -131,13 +159,14 @@ function baseBottomShoesForOccasion(
           ["loafers", "flats", "sneakers"],
           ["loafers", "sneakers", "sandals"],
           "loafers",
+          ctx,
         ),
       };
     case "gym":
       return {
-        base: pickGarment(["tshirt", "tank", "henley"], gender, "tshirt"),
-        bottom: pickGarment(["shorts", "leggings", "sweatpants"], gender, "shorts"),
-        shoes: pickGarment(["sneakers"], gender, "sneakers"),
+        base: pickGarment(["tshirt", "tank", "henley"], gender, "tshirt", ctx),
+        bottom: pickGarment(["shorts", "leggings", "sweatpants"], gender, "shorts", ctx),
+        shoes: pickGarment(["sneakers"], gender, "sneakers", ctx),
       };
     case "party":
     case "networking":
@@ -148,6 +177,7 @@ function baseBottomShoesForOccasion(
           ["crop top", "tube", "blouse", "shirt buttondown"],
           ["shirt buttondown", "polo", "tshirt"],
           "shirt buttondown",
+          ctx,
         ),
         bottom: pickByGenderGroup(
           gender,
@@ -155,6 +185,7 @@ function baseBottomShoesForOccasion(
           ["jeans", "skirt mini", "trousers"],
           ["jeans", "trousers", "cargo"],
           "jeans",
+          ctx,
         ),
         shoes: pickByGenderGroup(
           gender,
@@ -162,46 +193,48 @@ function baseBottomShoesForOccasion(
           ["heels", "boots", "sandals"],
           ["boots", "loafers", "sneakers", "sandals"],
           "boots",
+          ctx,
         ),
       };
     case "brunch":
     case "coffee":
     case "casual-day":
       return {
-        base: pickGarment(["tshirt", "tank", "polo", "henley"], gender, "tshirt"),
+        base: pickGarment(["tshirt", "tank", "polo", "henley"], gender, "tshirt", ctx),
         bottom: pickByGenderGroup(
           gender,
           ["jeans", "shorts", "cargo"],
           ["jeans", "shorts", "skirt midi", "leggings"],
           ["jeans", "shorts", "cargo", "leggings"],
           "jeans",
+          ctx,
         ),
-        shoes: pickGarment(["sneakers", "sandals", "loafers"], gender, "sneakers"),
+        shoes: pickGarment(["sneakers", "sandals", "loafers"], gender, "sneakers", ctx),
       };
     case "rave":
       return {
-        base: pickGarment(["hoodie", "sweatshirt", "tshirt"], gender, "hoodie"),
-        bottom: pickGarment(["jeans", "cargo", "leggings"], gender, "jeans"),
-        shoes: pickGarment(["boots", "sneakers"], gender, "boots"),
+        base: pickGarment(["hoodie", "sweatshirt", "tshirt"], gender, "hoodie", ctx),
+        bottom: pickGarment(["jeans", "cargo", "leggings"], gender, "jeans", ctx),
+        shoes: pickGarment(["boots", "sneakers"], gender, "boots", ctx),
       };
     case "school":
       return {
-        base: pickGarment(["tshirt", "sweatshirt", "polo", "henley"], gender, "tshirt"),
-        bottom: pickGarment(["jeans", "trousers", "shorts"], gender, "jeans"),
-        shoes: pickGarment(["sneakers", "loafers"], gender, "sneakers"),
+        base: pickGarment(["tshirt", "sweatshirt", "polo", "henley"], gender, "tshirt", ctx),
+        bottom: pickGarment(["jeans", "trousers", "shorts"], gender, "jeans", ctx),
+        shoes: pickGarment(["sneakers", "loafers"], gender, "sneakers", ctx),
       };
     default:
       return {
-        base: pickGarment(["tshirt", "polo"], gender, "tshirt"),
-        bottom: pickGarment(["jeans", "trousers"], gender, "jeans"),
-        shoes: pickGarment(["sneakers"], gender, "sneakers"),
+        base: pickGarment(["tshirt", "polo"], gender, "tshirt", ctx),
+        bottom: pickGarment(["jeans", "trousers"], gender, "jeans", ctx),
+        shoes: pickGarment(["sneakers"], gender, "sneakers", ctx),
       };
   }
 }
 
-function rainSafeShoes(shoes: string, gender: Gender): string {
+function rainSafeShoes(shoes: string, gender: Gender, ctx: PickCtx): string {
   if (shoes !== "sneakers" && shoes !== "oxfords") return shoes;
-  return pickGarment(["boots", "loafers"], gender, "boots");
+  return pickGarment(["boots", "loafers"], gender, "boots", ctx);
 }
 
 const rainyGuardFootwear = new Set(["sneakers", "oxfords"]);
@@ -221,7 +254,10 @@ export function generateOutfit(
   occasions: Occasion[],
   luckyColor: string,
   gender: Gender,
+  /** Increment to vary picks; `0` matches pre–Try-again behavior (first legal item per pool). */
+  roll = 0,
 ): OutfitRecommendation {
+  const ctx: PickCtx = { roll, slot: 0 };
   const list = occasions.length > 0 ? occasions : (["office"] as Occasion[]);
   const primary = pickPrimaryOccasion(list);
   const reminderList: string[] = [];
@@ -237,11 +273,11 @@ export function generateOutfit(
   }
 
   if (shouldUseOnePiece(primary, gender, weather.feelsLike)) {
-    const piece = pickOnePieceGarment(primary, gender, weather.feelsLike);
-    const shoeSource = baseBottomShoesForOccasion(primary, gender);
+    const piece = pickOnePieceGarment(primary, gender, weather.feelsLike, ctx);
+    const shoeSource = baseBottomShoesForOccasion(primary, gender, ctx);
     let shoes = shoeSource.shoes;
     if (isRainyWeather(weather) && rainyGuardFootwear.has(shoes)) {
-      shoes = rainSafeShoes(shoes, gender);
+      shoes = rainSafeShoes(shoes, gender, ctx);
     }
 
     return {
@@ -249,7 +285,7 @@ export function generateOutfit(
       topLayers: {
         base: piece,
         mid: undefined,
-        outer: outerLayerByWeather(weather, gender),
+        outer: outerLayerByWeather(weather, gender, ctx),
       },
       bottom: "",
       shoes,
@@ -258,13 +294,13 @@ export function generateOutfit(
     };
   }
 
-  const fit = baseBottomShoesForOccasion(primary, gender);
-  const mid = midLayerByFeelsLike(weather.feelsLike, gender);
-  const outer = outerLayerByWeather(weather, gender);
+  const fit = baseBottomShoesForOccasion(primary, gender, ctx);
+  const mid = midLayerByFeelsLike(weather.feelsLike, gender, ctx);
+  const outer = outerLayerByWeather(weather, gender, ctx);
 
   let shoes = fit.shoes;
   if (isRainyWeather(weather) && rainyGuardFootwear.has(shoes)) {
-    shoes = rainSafeShoes(shoes, gender);
+    shoes = rainSafeShoes(shoes, gender, ctx);
   }
 
   return {
