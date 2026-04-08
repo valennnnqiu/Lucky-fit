@@ -1,61 +1,120 @@
 /**
- * iOS Safari often drops <img> tiles in html-to-image when `src` is a normal URL.
- * Inlining fixes that — but inlining *every* image (especially the full-size ticket
- * PNG, multi‑MB as data URL) blows up the intermediate SVG and WebKit then loses the
- * small thumbs. Only mark compact assets with `data-share-inline` (garment thumbs, logo).
+ * iOS WebKit + html-to-image often drops <img> pixels inside SVG foreignObject.
+ * Temporarily replace marked images with <canvas> (bitmap); html-to-image copies
+ * canvas via toDataURL(). Large ticket art stays <img> (no data-share-inline).
  */
 export async function prepareImagesForHtmlToImageCapture(
   root: HTMLElement,
 ): Promise<() => void> {
   const imgs = [...root.querySelectorAll("img[data-share-inline]")] as HTMLImageElement[];
-  const snapshots = imgs.map((img) => ({
-    img,
-    srcAttr: img.getAttribute("src") ?? "",
-  }));
 
-  const fetchInit: RequestInit = { credentials: "same-origin" };
+  const replacements: {
+    parent: HTMLElement;
+    canvas: HTMLCanvasElement;
+    img: HTMLImageElement;
+    srcAttr: string;
+  }[] = [];
+
+  const fetchInit: RequestInit = { credentials: "same-origin", cache: "force-cache" };
 
   for (const img of imgs) {
-    const attr = img.currentSrc || img.getAttribute("src") || "";
-    if (!attr || attr.startsWith("data:")) {
-      await img.decode?.().catch(() => {});
-      continue;
-    }
-    if (attr.startsWith("blob:")) {
-      await img.decode?.().catch(() => {});
-      continue;
-    }
+    const srcAttr = img.getAttribute("src") ?? "";
+    let fetchUrl = img.currentSrc || srcAttr;
+    if (!fetchUrl) continue;
 
-    await img.decode?.().catch(() => {});
-
-    let fetchUrl = attr;
     try {
-      if (!/^https?:\/\//i.test(attr)) {
-        fetchUrl = new URL(attr, window.location.href).href;
+      let width: number;
+      let height: number;
+      let toDraw: CanvasImageSource;
+      let closeBitmap: ImageBitmap | undefined;
+
+      if (fetchUrl.startsWith("data:")) {
+        await img.decode?.().catch(() => {});
+        if (img.naturalWidth < 1 || img.naturalHeight < 1) continue;
+        width = img.naturalWidth;
+        height = img.naturalHeight;
+        toDraw = img;
+      } else {
+        if (fetchUrl.startsWith("blob:")) {
+          await img.decode?.().catch(() => {});
+          if (img.naturalWidth < 1 || img.naturalHeight < 1) continue;
+          width = img.naturalWidth;
+          height = img.naturalHeight;
+          toDraw = img;
+        } else {
+          if (!/^https?:\/\//i.test(fetchUrl)) {
+            fetchUrl = new URL(fetchUrl, window.location.href).href;
+          }
+          const res = await fetch(fetchUrl, fetchInit);
+          if (!res.ok) continue;
+          const blob = await res.blob();
+
+          try {
+            if (typeof createImageBitmap === "function") {
+              const bmp = await createImageBitmap(blob);
+              closeBitmap = bmp;
+              width = bmp.width;
+              height = bmp.height;
+              toDraw = bmp;
+            } else {
+              throw new Error("no ImageBitmap");
+            }
+          } catch {
+            const o = URL.createObjectURL(blob);
+            try {
+              const el = new Image();
+              await new Promise<void>((resolve, reject) => {
+                el.onload = () => resolve();
+                el.onerror = () => reject(new Error("decode"));
+                el.src = o;
+              });
+              width = el.naturalWidth;
+              height = el.naturalHeight;
+              toDraw = el;
+            } finally {
+              URL.revokeObjectURL(o);
+            }
+          }
+
+          if (width < 1 || height < 1) {
+            closeBitmap?.close();
+            continue;
+          }
+        }
       }
-    } catch {
-      continue;
-    }
 
-    try {
-      const res = await fetch(fetchUrl, fetchInit);
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(fr.result as string);
-        fr.onerror = () => reject(fr.error);
-        fr.readAsDataURL(blob);
-      });
-      img.src = dataUrl;
-      await img.decode?.().catch(() => {});
+      if (width < 1 || height < 1) continue;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        closeBitmap?.close();
+        continue;
+      }
+      ctx.drawImage(toDraw, 0, 0);
+      closeBitmap?.close();
+
+      canvas.className = img.className;
+      const rect = img.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+      }
+
+      const p = img.parentElement;
+      if (!p) continue;
+      p.replaceChild(canvas, img);
+      replacements.push({ parent: p, canvas, img, srcAttr });
     } catch {
-      /* keep remote src */
+      /* leave original <img> */
     }
   }
 
   return () => {
-    for (const { img, srcAttr } of snapshots) {
+    for (const { parent, canvas, img, srcAttr } of replacements.reverse()) {
+      parent.replaceChild(img, canvas);
       if (srcAttr !== "") img.setAttribute("src", srcAttr);
       else img.removeAttribute("src");
     }
