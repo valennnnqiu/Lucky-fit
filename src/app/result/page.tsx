@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { toPng } from "html-to-image";
+import html2canvas from "html2canvas";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BrandLogoMark } from "@/components/brand-logo";
 import { WeatherIcon } from "@/components/weather-icon";
@@ -103,6 +104,24 @@ function shoeGarmentIds(o: OutfitRecommendation): string[] {
   return raw.filter(hasGarmentImage);
 }
 
+function waitForShareCardImages(root: HTMLElement): Promise<void> {
+  const imgs = [...root.querySelectorAll("img")] as HTMLImageElement[];
+  return Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) {
+            resolve();
+            return;
+          }
+          const done = () => resolve();
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+        }),
+    ),
+  ).then(() => {});
+}
+
 export default function ResultPage() {
   const t = strings.result;
   const footer = strings.footer;
@@ -135,12 +154,29 @@ export default function ResultPage() {
     // Fixed 3× export for maximum crispness on Retina / phone saves (larger PNG).
     const pixelRatio = 3;
     try {
-      restoreImages = await prepareImagesForHtmlToImageCapture(node, pixelRatio);
+      await waitForShareCardImages(node);
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
 
-      const dataUrl = await toPng(node, { pixelRatio, cacheBust: true });
+      let dataUrl: string;
+      try {
+        const canvas = await html2canvas(node as HTMLElement, {
+          scale: pixelRatio,
+          useCORS: true,
+          allowTaint: false,
+          foreignObjectRendering: false,
+          backgroundColor: null,
+          logging: false,
+        });
+        dataUrl = canvas.toDataURL("image/png");
+      } catch {
+        restoreImages = await prepareImagesForHtmlToImageCapture(node, pixelRatio);
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+        dataUrl = await toPng(node, { pixelRatio, cacheBust: true });
+      }
       const blob = await (await fetch(dataUrl)).blob();
       const png =
         blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
@@ -353,6 +389,7 @@ export default function ResultPage() {
                 width={TICKET_MACHINE_INTRINSIC.w}
                 height={TICKET_MACHINE_INTRINSIC.h}
                 data-share-ticket=""
+                crossOrigin="anonymous"
                 className="pointer-events-none relative z-0 block h-auto w-full max-w-full select-none"
                 draggable={false}
                 onError={() => setTicketMachineOk(false)}
@@ -492,6 +529,7 @@ function GarmentSlotThumb({ garmentId }: { garmentId: string }) {
       width={60}
       height={60}
       data-share-inline=""
+      crossOrigin="anonymous"
       className="size-[60px] shrink-0 rounded-none object-cover"
       draggable={false}
       onError={() => setBroken(true)}
