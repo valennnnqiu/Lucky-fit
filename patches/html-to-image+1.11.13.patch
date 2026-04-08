@@ -1,0 +1,63 @@
+diff --git a/node_modules/html-to-image/es/clone-node.js b/node_modules/html-to-image/es/clone-node.js
+index 114cbf2..2005d3d 100644
+--- a/node_modules/html-to-image/es/clone-node.js
++++ b/node_modules/html-to-image/es/clone-node.js
+@@ -3,11 +3,23 @@ import { createImage, toArray, isInstanceOfElement, getStyleProperties, } from '
+ import { getMimeType } from './mimes';
+ import { resourceToDataURL } from './dataurl';
+ async function cloneCanvasElement(canvas) {
+-    const dataURL = canvas.toDataURL();
+-    if (dataURL === 'data:,') {
++    // Default library path: canvas → data URL → <img>. iOS/WebKit often fails to paint
++    // those inside SVG foreignObject. Keep a real <canvas> clone with copied pixels.
++    if (canvas.width < 1 || canvas.height < 1) {
+         return canvas.cloneNode(false);
+     }
+-    return createImage(dataURL);
++    const clone = document.createElement('canvas');
++    clone.width = canvas.width;
++    clone.height = canvas.height;
++    const ctx = clone.getContext('2d');
++    if (ctx) {
++        ctx.drawImage(canvas, 0, 0);
++    }
++    clone.className = canvas.className;
++    const styleAttr = canvas.getAttribute('style');
++    if (styleAttr)
++        clone.setAttribute('style', styleAttr);
++    return clone;
+ }
+ async function cloneVideoElement(video, options) {
+     if (video.currentSrc) {
+diff --git a/node_modules/html-to-image/lib/clone-node.js b/node_modules/html-to-image/lib/clone-node.js
+index 214f4d3..2a2d657 100644
+--- a/node_modules/html-to-image/lib/clone-node.js
++++ b/node_modules/html-to-image/lib/clone-node.js
+@@ -43,13 +43,23 @@ var mimes_1 = require("./mimes");
+ var dataurl_1 = require("./dataurl");
+ function cloneCanvasElement(canvas) {
+     return __awaiter(this, void 0, void 0, function () {
+-        var dataURL;
++        var clone, ctx, styleAttr;
+         return __generator(this, function (_a) {
+-            dataURL = canvas.toDataURL();
+-            if (dataURL === 'data:,') {
++            if (canvas.width < 1 || canvas.height < 1) {
+                 return [2 /*return*/, canvas.cloneNode(false)];
+             }
+-            return [2 /*return*/, (0, util_1.createImage)(dataURL)];
++            clone = document.createElement('canvas');
++            clone.width = canvas.width;
++            clone.height = canvas.height;
++            ctx = clone.getContext('2d');
++            if (ctx) {
++                ctx.drawImage(canvas, 0, 0);
++            }
++            clone.className = canvas.className;
++            styleAttr = canvas.getAttribute('style');
++            if (styleAttr)
++                clone.setAttribute('style', styleAttr);
++            return [2 /*return*/, clone];
+         });
+     });
+ }

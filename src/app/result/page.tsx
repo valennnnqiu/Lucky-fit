@@ -132,14 +132,14 @@ export default function ResultPage() {
     setIsSharing(true);
     const filename = "luckyfit.png";
     let restoreImages: (() => void) | undefined;
+    // Fixed 3× export for maximum crispness on Retina / phone saves (larger PNG).
+    const pixelRatio = 3;
     try {
-      restoreImages = await prepareImagesForHtmlToImageCapture(node);
+      restoreImages = await prepareImagesForHtmlToImageCapture(node, pixelRatio);
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
 
-      // Fixed 3× export for maximum crispness on Retina / phone saves (larger PNG).
-      const pixelRatio = 3;
       const dataUrl = await toPng(node, { pixelRatio, cacheBust: true });
       const blob = await (await fetch(dataUrl)).blob();
       const png =
@@ -352,6 +352,7 @@ export default function ResultPage() {
                 alt=""
                 width={TICKET_MACHINE_INTRINSIC.w}
                 height={TICKET_MACHINE_INTRINSIC.h}
+                data-share-ticket=""
                 className="pointer-events-none relative z-0 block h-auto w-full max-w-full select-none"
                 draggable={false}
                 onError={() => setTicketMachineOk(false)}
