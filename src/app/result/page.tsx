@@ -138,8 +138,8 @@ export default function ResultPage() {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
 
-      const pixelRatio =
-        typeof window !== "undefined" && window.innerWidth < 480 ? 1 : 2;
+      // Fixed 3× export for maximum crispness on Retina / phone saves (larger PNG).
+      const pixelRatio = 3;
       const dataUrl = await toPng(node, { pixelRatio, cacheBust: true });
       const blob = await (await fetch(dataUrl)).blob();
       const png =
