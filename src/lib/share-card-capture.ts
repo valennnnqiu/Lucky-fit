@@ -17,9 +17,27 @@ async function rasterizeTicketForCapture(
   await img.decode?.().catch(() => {});
   if (img.naturalWidth < 1 || img.naturalHeight < 1) return;
 
+  let displayW = img.offsetWidth || img.clientWidth;
+  let displayH = img.offsetHeight || img.clientHeight;
   const rect = img.getBoundingClientRect();
-  let w = Math.max(1, Math.round(rect.width * pixelRatio));
-  let h = Math.max(1, Math.round(rect.height * pixelRatio));
+  if (rect.width >= 1 && rect.height >= 1) {
+    displayW = rect.width;
+    displayH = rect.height;
+  }
+  if (displayW < 1 || displayH < 1) {
+    const par = img.parentElement;
+    displayW = par?.offsetWidth || par?.clientWidth || displayW;
+    if (displayW >= 1 && img.naturalWidth >= 1) {
+      displayH = Math.max(1, Math.round((displayW * img.naturalHeight) / img.naturalWidth));
+    }
+  }
+  if (displayW < 1 || displayH < 1) {
+    displayW = img.naturalWidth;
+    displayH = img.naturalHeight;
+  }
+
+  let w = Math.max(1, Math.round(displayW * pixelRatio));
+  let h = Math.max(1, Math.round(displayH * pixelRatio));
   const MAX = 2400;
   if (w > MAX) {
     h = Math.max(1, Math.round((h * MAX) / w));
@@ -37,10 +55,8 @@ async function rasterizeTicketForCapture(
   if (!ctx) return;
   ctx.drawImage(img, 0, 0, w, h);
   canvas.className = img.className;
-  if (rect.width > 0 && rect.height > 0) {
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-  }
+  canvas.style.width = `${displayW}px`;
+  canvas.style.height = `${displayH}px`;
 
   const p = img.parentElement;
   if (!p) return;
@@ -146,11 +162,15 @@ export async function prepareImagesForHtmlToImageCapture(
       closeBitmap?.close();
 
       canvas.className = img.className;
+      let dw = img.offsetWidth || img.clientWidth || 60;
+      let dh = img.offsetHeight || img.clientHeight || 60;
       const rect = img.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        canvas.style.width = `${rect.width}px`;
-        canvas.style.height = `${rect.height}px`;
+      if (rect.width >= 1 && rect.height >= 1) {
+        dw = rect.width;
+        dh = rect.height;
       }
+      canvas.style.width = `${dw}px`;
+      canvas.style.height = `${dh}px`;
 
       const p = img.parentElement;
       if (!p) continue;

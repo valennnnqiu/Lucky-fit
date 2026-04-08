@@ -179,51 +179,37 @@ export default function ResultPage() {
     setIsSharing(true);
     const filename = "luckyfit.png";
     const pixelRatio = 3;
-    /** Clone so (1) React won’t reconcile away img→canvas swaps (2) we avoid opacity:0 skip on iOS. */
-    let exportRoot: HTMLElement | null = null;
+    /** Restore raster swaps on the real card — off-screen clones often report 0×0 layout → blank PNG. */
+    let restoreRaster: (() => void) | undefined;
     try {
       await document.fonts?.ready?.catch(() => {});
 
-      exportRoot = node.cloneNode(true) as HTMLElement;
-      exportRoot.removeAttribute("id");
-      exportRoot.setAttribute("aria-hidden", "true");
-
-      const srcRect = node.getBoundingClientRect();
-      exportRoot.style.boxSizing = "border-box";
-      exportRoot.style.width = `${srcRect.width}px`;
-      exportRoot.style.position = "fixed";
-      exportRoot.style.left = "-12000px";
-      exportRoot.style.top = "0";
-      exportRoot.style.zIndex = "0";
-      exportRoot.style.pointerEvents = "none";
-      exportRoot.style.opacity = "1";
-      exportRoot.style.visibility = "visible";
-      exportRoot.style.overflow = "visible";
-
-      document.body.appendChild(exportRoot);
-
-      await waitForShareCardImages(exportRoot);
-      await prepareImagesForHtmlToImageCapture(exportRoot, pixelRatio);
-      void exportRoot.offsetHeight;
+      await waitForShareCardImages(node);
+      restoreRaster = await prepareImagesForHtmlToImageCapture(node, pixelRatio);
+      void node.offsetHeight;
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
 
       let png: Blob;
       try {
-        const el = exportRoot;
+        const el = node as HTMLElement;
         const compensation = layoutScaleCompensation(el);
         const canvas = await html2canvas(el, {
           scale: pixelRatio * compensation,
           useCORS: true,
           allowTaint: false,
           foreignObjectRendering: false,
-          backgroundColor: null,
+          backgroundColor: "#f3f5f6",
           logging: false,
         });
         png = await blobFromCanvas(canvas);
       } catch {
-        const dataUrl = await toPng(exportRoot, { pixelRatio, cacheBust: true });
+        const dataUrl = await toPng(node, {
+          pixelRatio,
+          cacheBust: true,
+          backgroundColor: "#f3f5f6",
+        });
         const blob = await (await fetch(dataUrl)).blob();
         png = blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
       }
@@ -293,9 +279,7 @@ export default function ResultPage() {
         URL.revokeObjectURL(url);
       }
     } finally {
-      if (exportRoot?.parentNode) {
-        exportRoot.parentNode.removeChild(exportRoot);
-      }
+      restoreRaster?.();
       setIsSharing(false);
     }
   }
