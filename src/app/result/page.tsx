@@ -15,6 +15,7 @@ import {
 } from "@/lib/page-layout";
 import { garmentIdToImageBasename, hasGarmentImage } from "@/lib/garment-catalog";
 import { generateOutfit } from "@/lib/outfit-engine";
+import { prepareImagesForHtmlToImageCapture } from "@/lib/share-card-capture";
 import {
   getOccasions,
   getOutfit,
@@ -130,7 +131,13 @@ export default function ResultPage() {
     setShareFeedback(null);
     setIsSharing(true);
     const filename = "luckyfit.png";
+    let restoreImages: (() => void) | undefined;
     try {
+      restoreImages = await prepareImagesForHtmlToImageCapture(node);
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+
       const dataUrl = await toPng(node, { pixelRatio: 2, cacheBust: true });
       const blob = await (await fetch(dataUrl)).blob();
       const png =
@@ -184,6 +191,7 @@ export default function ResultPage() {
         URL.revokeObjectURL(url);
       }
     } finally {
+      restoreImages?.();
       setIsSharing(false);
     }
   }
