@@ -138,7 +138,9 @@ export default function ResultPage() {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
 
-      const dataUrl = await toPng(node, { pixelRatio: 2, cacheBust: true });
+      const pixelRatio =
+        typeof window !== "undefined" && window.innerWidth < 480 ? 1 : 2;
+      const dataUrl = await toPng(node, { pixelRatio, cacheBust: true });
       const blob = await (await fetch(dataUrl)).blob();
       const png =
         blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
@@ -488,6 +490,7 @@ function GarmentSlotThumb({ garmentId }: { garmentId: string }) {
       alt=""
       width={60}
       height={60}
+      data-share-inline=""
       className="size-[60px] shrink-0 rounded-none object-cover"
       draggable={false}
       onError={() => setBroken(true)}
