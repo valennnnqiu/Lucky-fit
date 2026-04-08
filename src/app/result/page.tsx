@@ -110,7 +110,7 @@ function waitForShareCardImages(root: HTMLElement): Promise<void> {
     imgs.map(
       (img) =>
         new Promise<void>((resolve) => {
-          if (img.complete && img.naturalWidth > 0) {
+          if (img.complete) {
             resolve();
             return;
           }
@@ -178,18 +178,40 @@ export default function ResultPage() {
     setShareFeedback(null);
     setIsSharing(true);
     const filename = "luckyfit.png";
-    let restoreImages: (() => void) | undefined;
-    // Fixed 3× export for maximum crispness on Retina / phone saves (larger PNG).
     const pixelRatio = 3;
+    /** Clone so (1) React won’t reconcile away img→canvas swaps (2) we avoid opacity:0 skip on iOS. */
+    let exportRoot: HTMLElement | null = null;
     try {
-      await waitForShareCardImages(node);
+      await document.fonts?.ready?.catch(() => {});
+
+      exportRoot = node.cloneNode(true) as HTMLElement;
+      exportRoot.removeAttribute("id");
+      exportRoot.setAttribute("aria-hidden", "true");
+
+      const srcRect = node.getBoundingClientRect();
+      exportRoot.style.boxSizing = "border-box";
+      exportRoot.style.width = `${srcRect.width}px`;
+      exportRoot.style.position = "fixed";
+      exportRoot.style.left = "-12000px";
+      exportRoot.style.top = "0";
+      exportRoot.style.zIndex = "0";
+      exportRoot.style.pointerEvents = "none";
+      exportRoot.style.opacity = "1";
+      exportRoot.style.visibility = "visible";
+      exportRoot.style.overflow = "visible";
+
+      document.body.appendChild(exportRoot);
+
+      await waitForShareCardImages(exportRoot);
+      await prepareImagesForHtmlToImageCapture(exportRoot, pixelRatio);
+      void exportRoot.offsetHeight;
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
 
       let png: Blob;
       try {
-        const el = node as HTMLElement;
+        const el = exportRoot;
         const compensation = layoutScaleCompensation(el);
         const canvas = await html2canvas(el, {
           scale: pixelRatio * compensation,
@@ -201,11 +223,7 @@ export default function ResultPage() {
         });
         png = await blobFromCanvas(canvas);
       } catch {
-        restoreImages = await prepareImagesForHtmlToImageCapture(node, pixelRatio);
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        );
-        const dataUrl = await toPng(node, { pixelRatio, cacheBust: true });
+        const dataUrl = await toPng(exportRoot, { pixelRatio, cacheBust: true });
         const blob = await (await fetch(dataUrl)).blob();
         png = blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
       }
@@ -275,7 +293,9 @@ export default function ResultPage() {
         URL.revokeObjectURL(url);
       }
     } finally {
-      restoreImages?.();
+      if (exportRoot?.parentNode) {
+        exportRoot.parentNode.removeChild(exportRoot);
+      }
       setIsSharing(false);
     }
   }
