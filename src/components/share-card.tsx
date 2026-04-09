@@ -14,10 +14,7 @@ export function ShareCard({
   luckyColor: string;
 }) {
   return (
-    <div
-      id="share-card"
-      className="mx-auto flex aspect-[4/5] w-full max-w-sm flex-col justify-between border-2 border-neutral-900 bg-white p-4"
-    >
+    <div className="mx-auto flex aspect-[4/5] w-full max-w-sm flex-col justify-between border-2 border-neutral-900 bg-white p-4">
       <div>
         <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-800">
           OOTD Oracle

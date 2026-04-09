@@ -536,11 +536,12 @@ export default function ResultPage() {
         {/* Ticket / dispenser — PNG keeps full height at display width (no object-cover crop). */}
         <div className="flex w-full justify-center">
           <div
-            id="share-card"
             className="mt-1 flex shrink-0 flex-col items-center gap-3"
             style={{ width: TICKET_CARD_DISPLAY_PX }}
           >
+          {/* #share-card = export root: ticket PNG + overlay (date, logo, mood, rows, thumbs, made-by). */}
           <div
+            id="share-card"
             className={`relative shrink-0 overflow-hidden rounded-none ${
               ticketMachineOk
                 ? "bg-transparent"
