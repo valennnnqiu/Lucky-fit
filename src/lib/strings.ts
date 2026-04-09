@@ -86,6 +86,20 @@ export const strings = {
     sharePicText: "My Lucky Fit outfit card 🎨",
     /** After clipboard fallback when Web Share files isn’t available. */
     sharePicCopiedHint: "Image copied — paste to share.",
+    /** html2canvas / export stalled or failed (common on mobile Safari). */
+    sharePicCaptureFailed: "Couldn’t create the image. Please try again.",
+    /** Web Share sheet failed or was blocked; clipboard / download may still work. */
+    sharePicShareFailed:
+      "Share didn’t complete — try again, or save the downloaded image from your files.",
+    /** After export when the device can’t use a file download link (typical on iOS Safari). */
+    saveImageMobileHint:
+      "Press and hold the picture, then tap Save to Photos or Save Image.",
+    /** WeChat in-app WebView often blocks blobs and share APIs — opening in the system browser is reliable. */
+    saveImageWeChatHint:
+      "Inside WeChat? Tap ··· (top right) → Open in browser, then use Share again — or long-press the picture here.",
+    /** Visible `href` + user tap — some WebViews allow this when automatic download does not. */
+    saveImageDownloadLink: "Download image",
+    saveImageSheetClose: "Done",
     tryAgainCta: "Try again",
     tryAgainBusy: "New look…",
     madeBy: "Made by: {author}",

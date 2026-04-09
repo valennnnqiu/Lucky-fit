@@ -104,9 +104,9 @@ function shoeGarmentIds(o: OutfitRecommendation): string[] {
   return raw.filter(hasGarmentImage);
 }
 
-function waitForShareCardImages(root: HTMLElement): Promise<void> {
+function waitForShareCardImages(root: HTMLElement, timeoutMs: number): Promise<void> {
   const imgs = [...root.querySelectorAll("img")] as HTMLImageElement[];
-  return Promise.all(
+  const all = Promise.all(
     imgs.map(
       (img) =>
         new Promise<void>((resolve) => {
@@ -120,6 +120,65 @@ function waitForShareCardImages(root: HTMLElement): Promise<void> {
         }),
     ),
   ).then(() => {});
+  return Promise.race([
+    all,
+    new Promise<void>((resolve) => {
+      window.setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error("timeout")), ms);
+    }),
+  ]);
+}
+
+/** Avoid iOS/WebKit canvas limits and long hangs from extremely tall `html2canvas` output. */
+function capHtml2CanvasScale(el: HTMLElement, scale: number, coarsePointer: boolean): number {
+  const w = Math.max(1, el.offsetWidth);
+  const h = Math.max(1, Math.max(el.scrollHeight, el.offsetHeight));
+  const maxSide = coarsePointer ? 2800 : 5600;
+  return Math.min(scale, maxSide / w, maxSide / h, coarsePointer ? 2.75 : 8);
+}
+
+const SHARE_EXPORT_FILENAME = "luckyfit.png";
+
+function isWeChatInApp(): boolean {
+  return typeof navigator !== "undefined" && /MicroMessenger/i.test(navigator.userAgent);
+}
+
+/**
+ * Use an in-page preview + long-press / manual link instead of a synthetic `<a download>` click
+ * (ignored on many mobile WebViews, including iOS Safari and WeChat).
+ */
+function shouldUseMobileSaveSheet(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  if (/MicroMessenger/i.test(ua)) return true;
+  if (/Android/i.test(ua)) return true;
+  if (typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches) {
+    return true;
+  }
+  return (
+    /iP(hone|ad|od)/i.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      if (typeof fr.result === "string") resolve(fr.result);
+      else reject(new Error("data-url"));
+    };
+    fr.onerror = () => reject(fr.error ?? new Error("read"));
+    fr.readAsDataURL(blob);
+  });
 }
 
 /**
@@ -160,6 +219,7 @@ export default function ResultPage() {
   const [isSharing, setIsSharing] = useState(false);
   const [isTryAgain, setIsTryAgain] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [saveImagePreviewSrc, setSaveImagePreviewSrc] = useState<string | null>(null);
   const [ticketMachineOk, setTicketMachineOk] = useState(true);
 
   useEffect(() => {
@@ -176,49 +236,83 @@ export default function ResultPage() {
     const node = document.getElementById("share-card");
     if (!node) return;
     setShareFeedback(null);
+    setSaveImagePreviewSrc(null);
     setIsSharing(true);
-    const filename = "luckyfit.png";
-    const pixelRatio = 3;
+    const filename = SHARE_EXPORT_FILENAME;
+    const coarsePointer =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: coarse)").matches;
+    const inWeChat = isWeChatInApp();
+    /** `html2canvas` often stalls on mobile WebKit; lower `pixelRatio` reduces memory pressure. */
+    const pixelRatio = coarsePointer ? (inWeChat ? 1.5 : 2) : 3;
+    const captureMs = coarsePointer ? 28_000 : 42_000;
     /** Restore raster swaps on the real card — off-screen clones often report 0×0 layout → blank PNG. */
     let restoreRaster: (() => void) | undefined;
     try {
       await document.fonts?.ready?.catch(() => {});
 
-      await waitForShareCardImages(node);
+      await waitForShareCardImages(node, 12_000);
       restoreRaster = await prepareImagesForHtmlToImageCapture(node, pixelRatio);
       void node.offsetHeight;
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
 
-      let png: Blob;
-      try {
-        const el = node as HTMLElement;
-        const compensation = layoutScaleCompensation(el);
+      const el = node as HTMLElement;
+      const compensation = layoutScaleCompensation(el);
+      const rawScale = pixelRatio * compensation;
+      const html2canvasScale = capHtml2CanvasScale(
+        el,
+        coarsePointer ? Math.min(rawScale, 3) : Math.min(rawScale, 9),
+        coarsePointer,
+      );
+
+      async function blobFromToPng(): Promise<Blob> {
+        const dataUrl = await toPng(el, {
+          pixelRatio,
+          cacheBust: true,
+          backgroundColor: "#f3f5f6",
+        });
+        const blob = await (await fetch(dataUrl)).blob();
+        return blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
+      }
+
+      async function blobFromHtml2Canvas(): Promise<Blob> {
         const canvas = await html2canvas(el, {
-          scale: pixelRatio * compensation,
+          scale: html2canvasScale,
           useCORS: true,
           allowTaint: false,
           foreignObjectRendering: false,
           backgroundColor: "#f3f5f6",
           logging: false,
         });
-        png = await blobFromCanvas(canvas);
+        return blobFromCanvas(canvas);
+      }
+
+      let png: Blob;
+      try {
+        /**
+         * Always prefer `html2canvas` after raster swaps: on iOS, `toPng` clones `<canvas>` via
+         * `toDataURL()`, which is empty for tainted canvases (often breaking when not — see
+         * share-card-capture). `html2canvas` paints live canvas pixels reliably.
+         */
+        try {
+          png = await withTimeout(blobFromHtml2Canvas(), captureMs);
+        } catch {
+          png = await withTimeout(blobFromToPng(), captureMs);
+        }
+        if (!png || png.size < 1) {
+          throw new Error("empty png");
+        }
       } catch {
-        const dataUrl = await toPng(node, {
-          pixelRatio,
-          cacheBust: true,
-          backgroundColor: "#f3f5f6",
-        });
-        const blob = await (await fetch(dataUrl)).blob();
-        png = blob.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
+        setShareFeedback(t.sharePicCaptureFailed);
+        return;
       }
 
       const file = new File([png], filename, { type: "image/png" });
       const nav = typeof navigator !== "undefined" ? navigator : undefined;
-      const coarsePointer =
-        typeof window.matchMedia === "function" &&
-        window.matchMedia("(pointer: coarse)").matches;
+
+      let shareAttemptFailed = false;
 
       // 1) Web Share with file — iOS often reports canShare false even when share(files) works.
       const sharePayload = {
@@ -241,32 +335,54 @@ export default function ResultPage() {
       }
       if (tryFileShare && nav?.share) {
         try {
-          await nav.share(sharePayload);
+          await withTimeout(nav.share(sharePayload), 90_000);
           return;
         } catch (e) {
           const name = e instanceof Error ? e.name : "";
-          if (name === "AbortError") return;
+          if (name !== "AbortError") shareAttemptFailed = true;
+          /* User dismissed the share sheet — still offer clipboard / mobile save fallback below. */
         }
       }
 
-      // 2) Copy image so user can paste into Messages, Mail, etc. (common on desktop).
-      try {
-        if (nav?.clipboard?.write && typeof ClipboardItem !== "undefined") {
-          await nav.clipboard.write([
-            new ClipboardItem({
-              "image/png": png,
-            }),
-          ]);
-          setShareFeedback(t.sharePicCopiedHint);
-          window.setTimeout(() => setShareFeedback(null), 5000);
-          return;
+      // 2) Copy image — usually blocked or misleading inside WeChat’s WebView; skip there.
+      if (!inWeChat) {
+        try {
+          if (nav?.clipboard?.write && typeof ClipboardItem !== "undefined") {
+            await nav.clipboard.write([
+              new ClipboardItem({
+                "image/png": png,
+              }),
+            ]);
+            setShareFeedback(t.sharePicCopiedHint);
+            window.setTimeout(() => setShareFeedback(null), 5000);
+            return;
+          }
+        } catch {
+          /* fall through to file download */
         }
-      } catch {
-        /* fall through to file download */
       }
 
       // 3) Save file — last resort when share + clipboard aren’t available.
+      if (shouldUseMobileSaveSheet()) {
+        try {
+          const dataUrl = await blobToDataUrl(png);
+          setSaveImagePreviewSrc(dataUrl);
+          setShareFeedback(
+            shareAttemptFailed ? `${t.sharePicShareFailed} ${t.saveImageMobileHint}` : t.saveImageMobileHint,
+          );
+          window.setTimeout(() => setShareFeedback(null), 14_000);
+        } catch {
+          setShareFeedback(t.sharePicCaptureFailed);
+        }
+        return;
+      }
+
       const url = URL.createObjectURL(png);
+      if (shareAttemptFailed) {
+        setShareFeedback(t.sharePicShareFailed);
+        window.setTimeout(() => setShareFeedback(null), 7000);
+      }
+
       try {
         const a = document.createElement("a");
         a.href = url;
@@ -346,7 +462,12 @@ export default function ResultPage() {
 
   const luckyColorsToday = getLuckyColorsFromBirthday(profile.birthday);
 
+  function dismissSaveImageSheet() {
+    setSaveImagePreviewSrc(null);
+  }
+
   return (
+    <>
     <div className="phone-canvas-stage">
       <div className="phone-canvas-scale phone-canvas-scale--result">
         <div className={shell}>
@@ -439,7 +560,6 @@ export default function ResultPage() {
                 width={TICKET_MACHINE_INTRINSIC.w}
                 height={TICKET_MACHINE_INTRINSIC.h}
                 data-share-ticket=""
-                crossOrigin="anonymous"
                 className="pointer-events-none relative z-0 block h-auto w-full max-w-full select-none"
                 draggable={false}
                 onError={() => setTicketMachineOk(false)}
@@ -563,6 +683,51 @@ export default function ResultPage() {
         </div>
       </div>
     </div>
+
+    {saveImagePreviewSrc ? (
+      <div
+        className="fixed inset-0 z-[200] flex flex-col items-center justify-end gap-3 bg-black/65 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="save-image-sheet-title"
+      >
+        <div className="flex w-full max-w-lg flex-1 flex-col items-center justify-center gap-3 overflow-hidden min-h-0">
+          {isWeChatInApp() ? (
+            <p className="max-w-[min(100%,24rem)] text-center text-xs leading-snug text-white/90">
+              {t.saveImageWeChatHint}
+            </p>
+          ) : null}
+          <p
+            id="save-image-sheet-title"
+            className="max-w-[min(100%,24rem)] text-center text-sm leading-snug text-white/95"
+          >
+            {t.saveImageMobileHint}
+          </p>
+          {/* data: URL — WeChat / Android WebView often won’t display blob: in <img> */}
+          {/* eslint-disable-next-line @next/next/no-img-element — export preview for long-press save */}
+          <img
+            src={saveImagePreviewSrc}
+            alt=""
+            className="max-h-[min(72dvh,520px)] w-auto max-w-full shrink object-contain shadow-lg"
+          />
+        </div>
+        <a
+          href={saveImagePreviewSrc}
+          download={SHARE_EXPORT_FILENAME}
+          className="flex h-11 w-full max-w-xs shrink-0 items-center justify-center rounded-xl bg-[#bfafb4] px-4 text-center font-handjet text-lg font-medium text-[#1f1e1d] shadow-md no-underline"
+        >
+          {t.saveImageDownloadLink}
+        </a>
+        <button
+          type="button"
+          onClick={dismissSaveImageSheet}
+          className="h-11 w-full max-w-xs shrink-0 rounded-xl bg-white px-4 text-center font-handjet text-lg font-medium text-[#1f1e1d] shadow-md"
+        >
+          {t.saveImageSheetClose}
+        </button>
+      </div>
+    ) : null}
+    </>
   );
 }
 
@@ -579,7 +744,6 @@ function GarmentSlotThumb({ garmentId }: { garmentId: string }) {
       width={60}
       height={60}
       data-share-inline=""
-      crossOrigin="anonymous"
       className="size-[60px] shrink-0 rounded-none object-cover"
       draggable={false}
       onError={() => setBroken(true)}

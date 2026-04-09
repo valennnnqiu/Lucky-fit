@@ -69,9 +69,7 @@ export function BrandLogoMark({ variant, alt }: BrandLogoMarkProps) {
       height={heightPx}
       className={className}
       decoding="async"
-      {...(variant === "shareCard"
-        ? { "data-share-inline": "", crossOrigin: "anonymous" as const }
-        : {})}
+      {...(variant === "shareCard" ? { "data-share-inline": "" } : {})}
       aria-hidden={alt === "" ? true : undefined}
       onError={() => setFailed(true)}
     />
